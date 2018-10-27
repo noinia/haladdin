@@ -51,17 +51,17 @@ instance Renderable GameMode where
                        ]
 
 instance Renderable GameState where
-  render (GameState wrld p (ViewPort c (Vector2 w h)) _) =
-      g_ []
-         [ renderStatusBar p
-         , defSvg_  [ viewBox_ vb
-                    -- , transform_ tf
-                    ] [body]
-         ]
+  render gs = g_ []
+                 [ renderStatusBar $ gs^.player
+                 , defSvg_  [ viewBox_ vb
+                            ] [body]
+                 ]
     where
+      ViewPort c (Vector2 w h) = gs^.viewPort
+
       body = g_ []
-                [ render wrld
-                , render p
+                [ render $ gs^.world
+                , render $ gs^.player
                 ]
       -- tf = ms . concat $ [ "translate("
       --                    , show $ -(w/2)
