@@ -1,8 +1,9 @@
 module Main where
 
 -- import qualified Lib
-import qualified Svg
+-- import qualified Svg
+import qualified Haladdin
 -- import qualified Mario
 
 main :: IO ()
-main = Svg.main
+main = Haladdin.main

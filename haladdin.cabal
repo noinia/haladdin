@@ -48,6 +48,7 @@ library
                 , Haladdin.Controller
                 , Haladdin.View
                 , Haladdin.Action
+                , Haladdin.Input
 
                 -- , Lib
                 , Touch
@@ -58,6 +59,12 @@ library
   default-language: Haskell2010
 
   default-extensions: DataKinds
+                    , LambdaCase
+                    , TypeApplications
+                    , GeneralizedNewtypeDeriving
+                    , DeriveFunctor
+                    , DeriveFoldable
+                    , DeriveTraversable
 
 executable haladdin
   main-is: Main.hs
