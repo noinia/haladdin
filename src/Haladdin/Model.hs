@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Haladdin.Model where
 
+import Data.Ext
 import Control.Lens hiding (Level)
 import Data.Geometry.Point
 import Data.Geometry.Vector
@@ -29,7 +30,7 @@ data KeyState = Released | Pressed deriving (Show,Read,Eq,Enum,Bounded)
 
 toggleKey          :: KeyState -> KeyState
 toggleKey Released = Pressed
-toggleKey Pressed = Released
+toggleKey Pressed  = Released
 
 -- | Status of all keys
 data GKeysState a = KeysState { _leftKey  :: a
@@ -61,8 +62,6 @@ newtype Health = Health Word deriving (Show,Eq,Ord)
 
 newtype Score = Score Word deriving (Show,Eq,Ord)
 
-data Direction = Left' | Right' deriving (Show,Eq)
-
 data MovementState = Standing
                    | Crouching
                    | Jumping
@@ -77,8 +76,8 @@ data Sword = Shielded
 
 
 -- | The type representing Aladdin; the character that the player controls
-data Aladdin = Aladdin { _position      :: Point 2 R
-                       , _orientation   :: Direction
+data Aladdin = Aladdin { _position      :: Point  2 R
+                       , _velocity      :: Vector 2 R
                        , _movementState :: MovementState
                        , _apples        :: Count
                        , _sword         :: Sword
@@ -181,8 +180,9 @@ makeLenses ''World
 -- | The main Gamestate
 data GameState = GameState { _world     :: !World
                            , _player    :: !Player
-                           , _viewport  :: !ViewPort
+                           , _viewPort  :: !ViewPort
                            , _keysState :: !KeysState
+                           , _deltaTime :: Double
                            } deriving (Show,Eq)
 makeLenses ''GameState
 
@@ -197,3 +197,55 @@ makePrisms ''GameMode
 
 
 type Model = GameMode
+
+
+--------------------------------------------------------------------------------
+-- * Initial Values
+
+initialModel :: GameMode
+initialModel = Playing initialGameState
+
+initialGameState :: GameState
+initialGameState = GameState initialWorld initialPlayer initialViewPort initialKeysState 0
+
+initialWorld :: World
+initialWorld = World [] (NonEmpty.head allLevels) allLevels
+
+allLevels :: NonEmpty Level
+allLevels = NonEmpty.fromList [ Level [] [] [] $ box (ext $ Point2 10 10) (ext $ Point2 11 11)
+                              ]
+
+initialPlayer :: Player
+initialPlayer =
+    Player initialAladin initialLives 0 (Score 0) initialRespawnPoint
+
+initialRespawnPoint :: RespawnPoint
+initialRespawnPoint = RespawnPoint origin
+
+initialViewPort :: ViewPort
+initialViewPort = let w = 800
+                      h = 600
+                  in ViewPort (Point2 (w/2) (h/2)) (Vector2 w h)
+
+initialKeysState :: KeysState
+initialKeysState = allKeys Released
+
+initialAladin :: Aladdin
+initialAladin = Aladdin (initialRespawnPoint^.respawnPoint)
+                        (Vector2 0 0)
+                        Standing
+                        initialApples
+                        Shielded
+                        initialHealth
+
+--------------------------------------------------------------------------------
+-- * Some constants
+
+initialLives :: Count
+initialLives = 3
+
+initialHealth :: Health
+initialHealth = Health 100
+
+initialApples :: Count
+initialApples = 10

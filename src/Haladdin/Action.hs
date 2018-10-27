@@ -7,6 +7,12 @@ import Miso
 -- data Action = HandleKey KeyCode
 
 data Action
+  = StartGame
+  | TogglePause
+  | PlayingAction !PlayingAction
+-- type Action = PlayingAction
+
+data PlayingAction
   = GetKeysState !KeysState
   | Time !Double
   | NoOp
