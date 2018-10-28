@@ -87,7 +87,7 @@ applyKeysState dt ks a = F.foldl' (\a' f -> f a') a  $ update' <*> ks
                          (const id) -- up
                          (ifPressed jump)
                          (const id) -- throw
-                         (const id) -- slash
+                         (ifPressed' drawSword shieldSword) -- slash
 
 slowDown :: HasVelocity b => p -> b -> b
 slowDown dt a = a&velocity.xComponent %~ (*0.5)
@@ -139,6 +139,10 @@ canJump s = s `elem` [Standing, Crouching, Climbing]
 jumpVelocity :: R
 jumpVelocity = 6
 
+
+drawSword a = a&sword .~ Extended
+
+shieldSword a = a&sword .~ Shielded
 
 --------------------------------------------------------------------------------
 -- * Moving

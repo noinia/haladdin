@@ -87,7 +87,6 @@ data MovementState = Standing
 -- | State of Aladdin's sword
 data Sword = Shielded
            | Extended
-           | Slashing
   deriving (Show,Eq)
 
 
@@ -223,7 +222,14 @@ instance IsBoxable Collectable where
 
 
 
-type TargetArea = Rectangle () R
+newtype TargetArea = TargetArea (Rectangle () R) deriving (Show,Eq)
+
+instance IsBoxable TargetArea where
+  boundingBox (TargetArea r) = r
+
+type instance Dimension TargetArea = 2
+type instance NumType   TargetArea = R
+
 
 -- | The world consists of various levels. Levels consist of items,
 -- collectables, enemies and have a target s.t. if aladdin arrives at the
@@ -244,10 +250,10 @@ type instance NumType Level = R
 level            :: [Collectable] -> [Item] -> [Enemy] -> TargetArea -> Level
 level cs is es t = Level cs is es t bb
   where
-    bb = boundingBoxList $ t :| concat [ map boundingBox cs
-                                       , map boundingBox is
-                                       , map boundingBox es
-                                       ]
+    bb = boundingBoxList $ boundingBox t :| concat [ map boundingBox cs
+                                                   , map boundingBox is
+                                                   , map boundingBox es
+                                                   ]
 
 instance IsBoxable Level where
   boundingBox l = l^.bBox
@@ -314,8 +320,17 @@ allLevels = NonEmpty.fromList
             , Item (box (ext $ Point2 1000 0)
                         (ext $ Point2 1200 10000))
                    Wall
+            , Item (box (ext $ Point2 1600 0)
+                        (ext $ Point2 1800 10000))
+                   Ladder
+            , Item (box (ext $ Point2 2000 (-100))
+                        (ext $ Point2 2500 0))
+                   Coal
+            , Item (box (ext $ Point2 3000 (-100))
+                        (ext $ Point2 3500 0))
+                   Water
             ] []
-            $ box (ext $ Point2 10 10) (ext $ Point2 11 11)
+            (TargetArea $ box (ext $ Point2 10 10) (ext $ Point2 11 11))
     ]
 
 initialPlayer :: Player

@@ -5,7 +5,9 @@ import           Control.Lens hiding (Level, view)
 import           Data.Ext
 import           Data.Geometry.Box
 import           Data.Geometry.Point
+import           Data.Geometry.Transformation
 import           Data.Geometry.Vector
+import qualified Data.List as List
 import           Haladdin.Action
 import           Haladdin.Model
 import           Miso
@@ -15,8 +17,10 @@ import           Miso.Svg hiding (height_, id_, style_, width_)
 --------------------------------------------------------------------------------
 
 view   :: Model -> View Action
-view m = defSvg_ [ style_ $ "border-style" =: "solid" ] [render m]
-
+view m = div_ []
+              [ defSvg_ [ style_ $ "border-style" =: "solid" ] [render m]
+              , div_ [] [text . ms . show $ m]
+              ]
 
 defSvg_          :: [Attribute action] -> [View action] -> View action
 defSvg_ ats body = svg_ ([ width_     "800"
@@ -86,6 +90,10 @@ renderStatusBar p = g_ []
                          , width_   "100%"
                          , style_  $ "fill" =: "green"
                          ] []
+                 , text_ [ x_ $ ms (20  :: Int)
+                         , y_ $ ms (580 :: Int)
+                         ]
+                         [ "Health: " ]
                  ]
   where
     statusBarHeight = 40 :: Int
@@ -98,6 +106,7 @@ instance Renderable Level where
   render (Level cs os es t _) = g_ [] [ render cs
                                       , render os
                                       , render es
+                                      , render t
                                       ]
 
 instance Renderable Collectable where
@@ -111,10 +120,10 @@ renderStyle = \case
   Wall      -> "fill" =: "burlywood"
   Water     -> "fill" =: "blue"
   Coal      -> "fill" =: "red"
-  Ladder    -> "fill" =: "black"
-  -- SavePoint -> "fill" =: "cyan"
+  Ladder    -> "fill" =: "brown"
 
-
+instance Renderable TargetArea where
+  render (TargetArea r) = renderRectWith [style_ $ "fill" =: "green"] r
 
 
 renderRectWith        :: [Attribute action] -> Rectangle p R -> View action
@@ -127,7 +136,7 @@ renderRectWith ats bx = rect_ ([ x_     . ms $ bx^.minP.core.cwMin.xCoord
 
 
 instance Renderable Enemy where
-  render = undefined
+  render (Enemy p _ k st _) = undefined
 
 
 instance Renderable Player where
@@ -138,6 +147,7 @@ instance Renderable Aladdin where
                                      [ polygon_ [ points_ $ mkMS pts
                                                 , id_       "aladdin"
                                                 ] []
+                                     , renderSword (List.last pts)  s
                                      ]
     where
       pts = [p, p .+^ Vector2 0 h, p .+^ Vector2 w (h/2)]
@@ -153,6 +163,15 @@ instance Renderable Aladdin where
 
       mkMS = ms . unwords . map (\(Point2 x y) -> show x <> "," <> show y)
 
+
+
+renderSword p = \case
+      Shielded -> g_ [] []
+      Extended -> renderRectWith [] $ swordExtended p
+
+swordExtended p = translateBy (toVec p) $ swordExtendedInital
+
+swordExtendedInital = box (ext $ origin) (ext $ Point2 20 5)
 
 instance Renderable Score where
   render (Score s) = text_ [] [text $ ms s]
