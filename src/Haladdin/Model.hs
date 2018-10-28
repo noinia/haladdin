@@ -80,6 +80,7 @@ newtype Score = Score Word deriving (Show,Eq,Ord)
 data MovementState = Standing
                    | Crouching
                    | Jumping
+                   | Falling
                    | Climbing
                    deriving (Show,Eq)
 
@@ -187,7 +188,6 @@ data ItemKind = Wall
               | Water
               | Coal
               | Ladder
-              | SavePoint
               deriving (Show,Read,Eq)
 
 -- | The world consists of "items"
@@ -204,6 +204,7 @@ instance IsBoxable Item where
 
 data CollectableKind = CollectableApple
                      | CollectableRuby
+                     | SavePoint
                      deriving (Show,Eq)
 
 -- | Alladin can collect things; these Collectable Items have a location and a kind.
@@ -302,10 +303,16 @@ allLevels :: NonEmpty Level
 allLevels = NonEmpty.fromList
     [ level []
             [ Item (box (ext $ Point2 0 (-1000))
+                        (ext $ Point2 1300 0))
+                   Wall
+            , Item (box (ext $ Point2 1500 (-1000))
                         (ext $ Point2 2000 0))
                    Wall
             , Item (box (ext $ Point2 300 0)
                         (ext $ Point2 800 200))
+                   Wall
+            , Item (box (ext $ Point2 1000 0)
+                        (ext $ Point2 1200 10000))
                    Wall
             ] []
             $ box (ext $ Point2 10 10) (ext $ Point2 11 11)

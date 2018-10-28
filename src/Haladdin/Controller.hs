@@ -6,11 +6,12 @@ import qualified Data.Foldable as F
 import           Data.Geometry.Box
 import           Data.Geometry.Point
 import           Data.Geometry.Vector
+import           Data.Ord (comparing)
 import           Data.Range
+import           Data.UnBounded
 import           Haladdin.Action
 import           Haladdin.Model
 import           Miso
-
 
 update     :: Action -> Model -> Effect Action Model
 update a m = case a of
@@ -82,13 +83,13 @@ applyKeysState dt ks a = F.foldl' (\a' f -> f a') a  $ update' <*> ks
     update' :: GKeysState (KeyState -> Aladdin -> Aladdin)
     update' = KeysState  (ifPressed' moveLeft $ slowDown dt)
                          (ifPressed' moveRight $ slowDown dt)
+                         (ifPressed' crouch unCrouch)
                          (const id) -- up
-                         (ifPressed crouch)
                          (ifPressed jump)
                          (const id) -- throw
                          (const id) -- slash
 
-
+slowDown :: HasVelocity b => p -> b -> b
 slowDown dt a = a&velocity.xComponent %~ (*0.5)
 
 -- | Only perform the action if the key is pressed
@@ -114,10 +115,20 @@ moveLeft a = a&velocity.xComponent .~ (-1)*xDelta
 moveRight :: Aladdin -> Aladdin
 moveRight a = a&velocity.xComponent .~ xDelta
 
-crouch    :: Aladdin -> Aladdin
-crouch a' = if canCrouch (a'^.movementState) then c a' else a'
+crouch   :: Aladdin -> Aladdin
+crouch a = a&movementState %~ f
   where
-    c a = a&movementState .~ Crouching
+    f = \case
+          Standing -> Crouching
+          s        -> s
+
+unCrouch   :: Aladdin -> Aladdin
+unCrouch a = a&movementState %~ f
+  where
+    f = \case
+          Crouching -> Standing
+          s         -> s
+
 
 canCrouch   :: MovementState -> Bool
 canCrouch s = s `elem` [Standing]
@@ -135,9 +146,9 @@ jumpVelocity = 6
 move           :: Level -> KeysState -> Double -> Aladdin -> Aladdin
 move lvl ks dt = aladdinPhysics  dt ground (lvl^.bBox)
                . applyKeysState  dt ks
-               . gravity         dt ground
+               . aladdinGravity  dt ground
   where
-    ground = groundAt lvl
+    ground = groundAt' lvl
 
 
 -- -- | If we keep pressing the left/right keys we want to maintain the movement speed.
@@ -155,22 +166,41 @@ move lvl ks dt = aladdinPhysics  dt ground (lvl^.bBox)
   --                                               . ifPressed (subtract xDelta) (ks^.leftKey)
   --                                               )
 
-groundAt       :: Level -> Point 2 R -> R
-groundAt lvl p = 0  -- TODO
 
+--------------------------------------------------------------------------------
 
+aladdinGravity  :: Double -> (Point 2 R -> R) -> Aladdin -> Aladdin
+aladdinGravity dt ground a
+    | a^.position.yCoord > ground (a^.position) = (applyGravity dt a)&movementState .~ Falling
+    | otherwise                                 = a
+
+-- | Compute gravity on an object
 gravity             :: (HasPosition t, HasVelocity t)
                     => Double
                     -> (Point 2 R -> R) -- ^ find the ground level where we stop falling
                     -> t -> t
-gravity dt ground a = a&velocity.yComponent %~ \vy ->
-                          if a^.position.yCoord > ground (a^.position)
-                          then vy - (dt/4)
-                          else 0
+gravity dt ground a
+    | a^.position.yCoord > ground (a^.position) = applyGravity dt a
+    | otherwise                                 = a
+
+-- | Actually apply the gravity function
+applyGravity      :: HasVelocity t => Double -> t -> t
+applyGravity dt a = a&velocity.yComponent %~ f
+  where
+    f vy = accell vy - (dt/4)
+
+    accell = \case
+      0  -> fallingSpeed
+      vy -> vy
+
+-- | Speed with which we start falling
+fallingSpeed :: R
+fallingSpeed = -6
 
 
 -- | version specfic to aladdin
-aladdinPhysics             :: Double -> (Point 2 R -> R) -> Rectangle p R -> Aladdin -> Aladdin
+aladdinPhysics             :: Double -> (Point 2 R -> R)
+                           -> Rectangle p R -> Aladdin -> Aladdin
 aladdinPhysics dt ground r = physicsY . physicsX
   where
     physicsX a = a&position.xCoord +~ dt*a^.velocity.xComponent
@@ -180,11 +210,7 @@ aladdinPhysics dt ground r = physicsY . physicsX
                | otherwise  = a&position.yCoord .~ newY
       where
         newY = a^.position.yCoord + dt*a^.velocity.yComponent
-        gp = ground $ a^.position
-
-stopFalling = \case
-    Jumping -> Standing
-    s       -> s
+        gp   = ground $ a^.position
 
 -- | Perform the actual movement
 physics             :: (HasPosition t, HasVelocity t)
@@ -197,6 +223,14 @@ physics dt ground = physicsY . physicsX -- first do x, then do y, this prevents 
     physicsY a = a&position.yCoord %~ \y -> (y + dt*a^.velocity.yComponent)
                                             `max`
                                             ground (a^.position)
+
+-- | Figure out if we should stop falling
+stopFalling :: MovementState -> MovementState
+stopFalling = \case
+    Jumping -> Standing
+    Falling -> Standing
+    s       -> s
+
 
 
 
@@ -243,10 +277,38 @@ physics dt ground = physicsY . physicsX -- first do x, then do y, this prevents 
 --             | otherwise                   = a&velocity.xComponent .~ 0
 
 --------------------------------------------------------------------------------
+-- * Geometry stuff
+
+groundAt'       :: Level -> Point 2 R -> R
+groundAt' lvl p = case groundAt lvl p of
+                    Bottom     -> lvl^.bBox.to minPoint.core.yCoord
+                    ValB (y,_) -> y
+
+-- | Find the topmost item below p
+groundAt       :: Level -> Point 2 R -> Bottom (R,Item)
+groundAt lvl p = shootRay p $ lvl^.obstacles
+
+-- | Find the topmost item below p
+shootRay   :: Point 2 R -> [Item] -> Bottom (R,Item)
+shootRay p = maximumOn fst . concatMap isVal . map (shootRay' p)
+  where
+    isVal = \case
+      Bottom -> []
+      ValB x -> [x]
+
+maximumOn   :: Ord b => (a -> b) -> [a] -> Bottom a
+maximumOn f = \case
+  [] -> Bottom
+  xs -> ValB $ F.maximumBy (comparing f) xs
 
 
-xComponent :: Lens' (Vector 2 r) r
-xComponent = element (C :: C 0)
+shootRay'     :: Point 2 R -> Item -> Bottom (R,Item)
+shootRay' p i = (,i) <$> (f $ i^.itemBox)
+  where
+    f b | (p^.xCoord) `inRange` (b^.to extent.xComponent) = maxBelow (p^.yCoord) b
+        | otherwise                                       = Bottom
 
-yComponent :: Lens' (Vector 2 r) r
-yComponent = element (C :: C 1)
+maxBelow     :: R -> Rectangle p R -> Bottom R
+maxBelow y b = let Range' l u = b^.to extent.yComponent
+               in if y >= l then ValB $ y `min` u
+                            else Bottom

@@ -95,17 +95,26 @@ instance Renderable World where
   render (World _ l _) = render l
 
 instance Renderable Level where
-  render (Level cs os es t) = g_ [] [ render cs
-                                    , render os
-                                    , render es
-                                    ]
+  render (Level cs os es t _) = g_ [] [ render cs
+                                      , render os
+                                      , render es
+                                      ]
 
 instance Renderable Collectable where
   render = undefined
 
 instance Renderable Item where
-  render (Item bx k) = renderRectWith [ style_ $ "fill" =: "burlywood"
+  render (Item bx k) = renderRectWith [ style_ $ renderStyle k
                                       ] bx
+
+renderStyle = \case
+  Wall      -> "fill" =: "burlywood"
+  Water     -> "fill" =: "blue"
+  Coal      -> "fill" =: "red"
+  Ladder    -> "fill" =: "black"
+  -- SavePoint -> "fill" =: "cyan"
+
+
 
 
 renderRectWith        :: [Attribute action] -> Rectangle p R -> View action
@@ -125,14 +134,25 @@ instance Renderable Player where
   render p = render $ p^.aladdin
 
 instance Renderable Aladdin where
-  render (Aladdin p d st _ s _) = g_ []
-                                     [ rect_ [ x_      . ms $ p^.xCoord
-                                             , y_      . ms $ p^.yCoord
-                                             , width_  $ ms (100 :: Int)
-                                             , height_ $ ms (40  :: Int)
-                                             , id_       "aladdin"
-                                             ] []
+  render (Aladdin p v st _ s _) = g_ []
+                                     [ polygon_ [ points_ $ mkMS pts
+                                                , id_       "aladdin"
+                                                ] []
                                      ]
+    where
+      pts = [p, p .+^ Vector2 0 h, p .+^ Vector2 w (h/2)]
+
+      -- aladdin's height
+      h = case st of
+            Crouching -> 50
+            _         -> 100
+
+      w = 50 * case v^.xComponent > 0 of
+                 True  -> 1
+                 False -> (-1)
+
+      mkMS = ms . unwords . map (\(Point2 x y) -> show x <> "," <> show y)
+
 
 instance Renderable Score where
   render (Score s) = text_ [] [text $ ms s]

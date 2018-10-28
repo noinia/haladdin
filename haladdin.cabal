@@ -66,6 +66,7 @@ library
                     , DeriveFunctor
                     , DeriveFoldable
                     , DeriveTraversable
+                    , TupleSections
 
 executable haladdin
   main-is: Main.hs
