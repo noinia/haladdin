@@ -1,12 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Haladdin.Model where
 
-import Data.Ext
-import Control.Lens hiding (Level)
-import Data.Geometry.Point
-import Data.Geometry.Vector
-import Data.Geometry.Box
-import Data.List.NonEmpty as NonEmpty
+import           Control.Lens hiding (Level)
+import           Data.Ext
+import           Data.Geometry.Box
+import           Data.Geometry.Point
+import           Data.Geometry.Properties
+import           Data.Geometry.Vector
+import qualified Data.List.NonEmpty as NonEmpty
+import           Data.List.NonEmpty (NonEmpty(..))
 
 --------------------------------------------------------------------------------
 -- * General Types
@@ -54,6 +56,19 @@ type KeysState = GKeysState KeyState
 allKeys :: a -> GKeysState a
 allKeys = pure
 
+
+--------------------------------------------------------------------------------
+-- * Some genereric typeclasses
+
+class HasPosition t where
+  position :: Lens' t (Point 2 R)
+
+class HasVelocity t where
+  velocity :: Lens' t (Vector 2 R)
+
+class HasHealth t where
+  health :: Lens' t Health
+
 --------------------------------------------------------------------------------
 -- * Player and Aladdin itself
 
@@ -75,20 +90,48 @@ data Sword = Shielded
   deriving (Show,Eq)
 
 
+-- | Throwable "weapons", i.e. apples, swords, etc.
+data Throwable = Throwable { _throwableCenter   :: Point  2 R
+                           , _throwableVelocity :: Vector 2 R
+                           , _throwableSize     :: Vector 2 R
+                           } deriving (Show,Eq)
+makeLenses ''Throwable
+
+instance HasPosition Throwable where position = throwableCenter
+instance HasVelocity Throwable where velocity = throwableVelocity
+
+class AsThrowable t where
+  throwable :: Lens' t Throwable
+
+newtype Apple = Apple Throwable deriving (Show,Eq)
+
+instance AsThrowable Apple where throwable = lens (\(Apple t) -> t) (const Apple)
+instance HasPosition Apple where position = throwable.position
+instance HasVelocity Apple where velocity = throwable.velocity
+
+
 -- | The type representing Aladdin; the character that the player controls
-data Aladdin = Aladdin { _position      :: Point  2 R
-                       , _velocity      :: Vector 2 R
-                       , _movementState :: MovementState
-                       , _apples        :: Count
-                       , _sword         :: Sword
-                       , _health        :: Health
+data Aladdin = Aladdin { _aladdinPosition :: Point  2 R
+                       , _aladdinVelocity :: Vector 2 R
+                       , _movementState   :: MovementState
+                       , _apples          :: Count
+                       , _sword           :: Sword
+                       , _aladdinHealth   :: Health
                        } deriving (Show,Eq)
 makeLenses ''Aladdin
+
+instance HasPosition Aladdin where position = aladdinPosition
+instance HasVelocity Aladdin where velocity = aladdinVelocity
+instance HasHealth   Aladdin where health   = aladdinHealth
+
 
 
 newtype RespawnPoint = RespawnPoint { _respawnPoint :: Point 2 R }
                      deriving (Show,Eq,Ord)
 makeLenses ''RespawnPoint
+
+
+instance HasPosition RespawnPoint where position = respawnPoint
 
 
 -- | Type representing the player
@@ -118,13 +161,23 @@ data EnemyKind = Marketman
                deriving (Show,Eq)
 
 -- | Data type representing Alladin's enemies
-data Enemy = Enemy { _enemyPosition   :: Point 2 R
+data Enemy = Enemy { _enemyPosition   :: Point  2 R
+                   , _enemyVelocity   :: Vector 2 R
                    , _enemyKind       :: EnemyKind
                    , _enemyState      :: EnemyState
                    , _enemyHealth     :: Health
                    } deriving (Show,Eq)
 makeLenses ''Enemy
 
+instance HasPosition Enemy where position = enemyPosition
+instance HasVelocity Enemy where velocity = enemyVelocity
+instance HasHealth   Enemy where health   = enemyHealth
+
+type instance Dimension Enemy = 2
+type instance NumType Enemy = R
+
+instance IsBoxable Enemy where
+  boundingBox e = boundingBox $ e^.position
 
 --------------------------------------------------------------------------------
 -- * The World
@@ -138,21 +191,38 @@ data ItemKind = Wall
               deriving (Show,Read,Eq)
 
 -- | The world consists of "items"
-data Item = Item { _obstacleBox  :: Rectangle () R
-                 , _obstacleKind :: ItemKind
+data Item = Item { _itemBox  :: !(Rectangle () R)
+                 , _itemKind :: !ItemKind
                  } deriving (Show,Eq)
 makeLenses ''Item
 
+type instance Dimension Item = 2
+type instance NumType Item = R
+
+instance IsBoxable Item where
+  boundingBox i = i^.itemBox
 
 data CollectableKind = CollectableApple
                      | CollectableRuby
                      deriving (Show,Eq)
 
 -- | Alladin can collect things; these Collectable Items have a location and a kind.
-data Collectable = Collectable { _collectableLocation :: Point 2 R
-                               , _collectableKind     :: CollectableKind
+data Collectable = Collectable { _collectablePosition :: !(Point 2 R)
+                               , _collectableKind     :: !CollectableKind
                                } deriving (Show,Eq)
 makeLenses ''Collectable
+
+instance HasPosition Collectable where position = collectablePosition
+
+type instance Dimension Collectable = 2
+type instance NumType Collectable = R
+
+instance IsBoxable Collectable where
+  boundingBox c = boundingBox $ c^.position
+
+
+
+type TargetArea = Rectangle () R
 
 -- | The world consists of various levels. Levels consist of items,
 -- collectables, enemies and have a target s.t. if aladdin arrives at the
@@ -160,16 +230,33 @@ makeLenses ''Collectable
 data Level = Level { _collectables :: [Collectable]
                    , _obstacles    :: [Item]
                    , _enemies      :: [Enemy]
-                   , _target       :: Rectangle () R -- ^ if the player reaches here
+                   , _target       :: !TargetArea -- ^ if the player reaches here
                                                      -- the level is complete
+                   , _bBox         :: Rectangle () R
                    } deriving (Show,Eq)
 makeLenses ''Level
+
+type instance Dimension Level = 2
+type instance NumType Level = R
+
+-- | Smart constructor for making a level
+level            :: [Collectable] -> [Item] -> [Enemy] -> TargetArea -> Level
+level cs is es t = Level cs is es t bb
+  where
+    bb = boundingBoxList $ t :| concat [ map boundingBox cs
+                                       , map boundingBox is
+                                       , map boundingBox es
+                                       ]
+
+instance IsBoxable Level where
+  boundingBox l = l^.bBox
+
 
 -- | Data type representing the world. Esentially a zipper with Levels.  Note
 -- that unfinishedLevels will contain an (unmodified) copy of the activeLevel
 -- as well.
 data World = World { _completedLevels  :: [Level]
-                   , _activeLevel      :: Level
+                   , _activeLevel      :: !Level
                    , _unfinishedLevels :: NonEmpty Level
                    } deriving (Show,Eq)
 makeLenses ''World
@@ -182,15 +269,15 @@ data GameState = GameState { _world     :: !World
                            , _player    :: !Player
                            , _viewPort  :: !ViewPort
                            , _keysState :: !KeysState
-                           , _deltaTime :: Double
+                           , _deltaTime :: !Double
                            } deriving (Show,Eq)
 makeLenses ''GameState
 
 
 data GameMode = Playing !GameState
               | Paused !GameState
-              | GameOver Score
-              | Finished Score
+              | GameOver !Score
+              | Finished !Score
               deriving (Show,Eq)
 makePrisms ''GameMode
 
@@ -212,8 +299,17 @@ initialWorld :: World
 initialWorld = World [] (NonEmpty.head allLevels) allLevels
 
 allLevels :: NonEmpty Level
-allLevels = NonEmpty.fromList [ Level [] [] [] $ box (ext $ Point2 10 10) (ext $ Point2 11 11)
-                              ]
+allLevels = NonEmpty.fromList
+    [ level []
+            [ Item (box (ext $ Point2 0 (-1000))
+                        (ext $ Point2 2000 0))
+                   Wall
+            , Item (box (ext $ Point2 300 0)
+                        (ext $ Point2 800 200))
+                   Wall
+            ] []
+            $ box (ext $ Point2 10 10) (ext $ Point2 11 11)
+    ]
 
 initialPlayer :: Player
 initialPlayer =
@@ -225,7 +321,7 @@ initialRespawnPoint = RespawnPoint origin
 initialViewPort :: ViewPort
 initialViewPort = let w = 800
                       h = 600
-                  in ViewPort (Point2 (w/2) (h/2)) (Vector2 w h)
+                  in ViewPort (Point2 (w/2) (h*0.4)) (Vector2 w h)
 
 initialKeysState :: KeysState
 initialKeysState = allKeys Released

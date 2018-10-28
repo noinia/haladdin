@@ -7,3 +7,4 @@ import qualified Haladdin
 
 main :: IO ()
 main = Haladdin.main
+-- main = Haladdin.debug

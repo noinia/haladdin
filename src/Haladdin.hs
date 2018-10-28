@@ -6,12 +6,13 @@ import qualified Haladdin.Controller as Controller
 import           Haladdin.Model
 import qualified Haladdin.View as View
 import qualified Language.Javascript.JSaddle.Warp as JSaddle
+import qualified Language.Javascript.JSaddle.WebSockets as JSaddle
 import           Miso
 
 --------------------------------------------------------------------------------
 
-main :: IO ()
-main = JSaddle.run 8080 $ do
+mainJSM :: JSM ()
+mainJSM = do
     let myApp = App { model         = initialModel
                     , update        = Controller.update
                     , view          = View.view
@@ -21,3 +22,10 @@ main = JSaddle.run 8080 $ do
                     , mountPoint    = Nothing
                     }
     startApp myApp
+
+
+main :: IO ()
+main = JSaddle.run 8080 $ mainJSM
+
+debug :: IO ()
+debug = JSaddle.debug 8080 $ mainJSM

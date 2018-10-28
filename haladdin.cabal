@@ -61,6 +61,7 @@ library
   default-extensions: DataKinds
                     , LambdaCase
                     , TypeApplications
+                    , TypeFamilies
                     , GeneralizedNewtypeDeriving
                     , DeriveFunctor
                     , DeriveFoldable

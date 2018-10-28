@@ -2,24 +2,25 @@
 module Haladdin.View where
 
 import           Control.Lens hiding (Level, view)
+import           Data.Ext
+import           Data.Geometry.Box
 import           Data.Geometry.Point
 import           Data.Geometry.Vector
-import qualified Data.Map as Map
 import           Haladdin.Action
 import           Haladdin.Model
 import           Miso
-import           Miso.String(ms)
+import           Miso.String (ms)
 import           Miso.Svg hiding (height_, id_, style_, width_)
 
 --------------------------------------------------------------------------------
 
 view   :: Model -> View Action
-view m = div_ [] [ defSvg_ [ style_ $ "border-style" =: "solid" ] [render m]]
+view m = defSvg_ [ style_ $ "border-style" =: "solid" ] [render m]
 
 
 defSvg_          :: [Attribute action] -> [View action] -> View action
-defSvg_ ats body = svg_ ([ width_ "800"
-                         , height_ "600"
+defSvg_ ats body = svg_ ([ width_     "800"
+                         , height_    "600"
                          , transform_ "scale(1,-1)"
                          ] <> ats
                         )
@@ -34,7 +35,8 @@ menuSvg_ body = defSvg_ [] [body]
 class Renderable t where
   render :: t -> View Action
 
-
+instance Renderable t => Renderable [t] where
+  render = g_ [] . map render
 
 
 instance Renderable GameMode where
@@ -52,9 +54,9 @@ instance Renderable GameMode where
 
 instance Renderable GameState where
   render gs = g_ []
-                 [ renderStatusBar $ gs^.player
-                 , defSvg_  [ viewBox_ vb
+                 [ defSvg_  [ viewBox_ vb
                             ] [body]
+                 , renderStatusBar $ gs^.player
                  ]
     where
       ViewPort c (Vector2 w h) = gs^.viewPort
@@ -93,17 +95,42 @@ instance Renderable World where
   render (World _ l _) = render l
 
 instance Renderable Level where
-  render (Level cs os es t) = g_ [] []
+  render (Level cs os es t) = g_ [] [ render cs
+                                    , render os
+                                    , render es
+                                    ]
+
+instance Renderable Collectable where
+  render = undefined
+
+instance Renderable Item where
+  render (Item bx k) = renderRectWith [ style_ $ "fill" =: "burlywood"
+                                      ] bx
+
+
+renderRectWith        :: [Attribute action] -> Rectangle p R -> View action
+renderRectWith ats bx = rect_ ([ x_     . ms $ bx^.minP.core.cwMin.xCoord
+                               , y_     . ms $ bx^.minP.core.cwMin.yCoord
+                               , width_  $ ms (width bx)
+                               , height_ $ ms (height bx)
+                               ] <> ats ) []
+
+
+
+instance Renderable Enemy where
+  render = undefined
+
 
 instance Renderable Player where
   render p = render $ p^.aladdin
 
 instance Renderable Aladdin where
   render (Aladdin p d st _ s _) = g_ []
-                                     [ rect_ [ x_     . ms $ p^.xCoord
-                                             , y_     . ms $ p^.yCoord
+                                     [ rect_ [ x_      . ms $ p^.xCoord
+                                             , y_      . ms $ p^.yCoord
                                              , width_  $ ms (100 :: Int)
                                              , height_ $ ms (40  :: Int)
+                                             , id_       "aladdin"
                                              ] []
                                      ]
 
