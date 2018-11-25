@@ -75,7 +75,7 @@ class HasHealth t where
 
 newtype Health = Health Word deriving (Show,Eq,Ord)
 
-newtype Score = Score Word deriving (Show,Eq,Ord)
+newtype Score = Score Word deriving (Show,Eq,Ord,Num)
 
 data MovementState = Standing
                    | Crouching
@@ -205,6 +205,7 @@ data CollectableKind = CollectableApple
                      | CollectableRuby
                      | SavePoint
                      deriving (Show,Eq)
+makePrisms ''CollectableKind
 
 -- | Alladin can collect things; these Collectable Items have a location and a kind.
 data Collectable = Collectable { _collectablePosition :: !(Point 2 R)

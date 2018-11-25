@@ -7,16 +7,16 @@ import           Data.Ext
 import qualified Data.Foldable as F
 import           Data.Geometry.Box
 import           Data.Geometry.Point
-import           Data.Geometry.Vector
 import           Data.Geometry.Properties
 import           Data.Geometry.Vector
+import           Data.List (genericLength)
+import           Data.Maybe
 import           Data.Ord (comparing)
 import           Data.Range
 import           Data.UnBounded
 import           Haladdin.Action
 import           Haladdin.Model
 import           Miso hiding (set)
-
 --------------------------------------------------------------------------------
 
 update     :: Action -> Model -> Effect Action Model
@@ -72,6 +72,10 @@ class Progressable t where
 class ApplyLogic t where
   -- | perform whatever update to this t
   applyLogic :: GameState -> t -> t
+
+class ApplyLogicDeletable t where
+  -- | perform whatever update to this t (in case the type may dissapear)
+  applyLogic' :: GameState -> t -> Maybe  t
 
 --------------------------------------------------------------------------------
 -- * Everything that moves/changes as a function of time.
@@ -173,7 +177,48 @@ instance ApplyLogic World where
                        (w^.activeLevel.target.to boundingBox)
 
 instance ApplyLogic Level where
-  applyLogic gs l = l
+  applyLogic gs l = l&collectables %~ mapMaybe (applyLogic' gs)
+                     &enemies      %~ mapMaybe (applyLogic' gs)
+
+instance ApplyLogicDeletable Collectable where
+  applyLogic' gs c = case c^.collectableKind of
+     SavePoint                                                    -> Just c
+     _ | (gs^.player.aladdin.position) `intersects` boundingBox c -> Nothing
+       | otherwise                                                -> Just c
+
+instance ApplyLogicDeletable Enemy where
+  applyLogic' _ e | e^.health <= Health 0 = Nothing
+                  | otherwise             = Just e
+
+-- | Number of points you get for collecting a ruby
+rubyScore :: Score
+rubyScore = 10
+
+instance ApplyLogic Player where
+  applyLogic gs p = p&aladdin         %~ applyLogic gs
+                     &rubies          +~ nr
+                     &respawnLocation %~ latestRespawnLoc pos cs
+                     &score           +~ fromIntegral nr * rubyScore
+    where
+      cs  = gs^.world.activeLevel.collectables
+      pos = p^.aladdin.position
+      nr  = collected CollectableRuby pos cs
+
+latestRespawnLoc pos cs rl = rl
+
+-- | figure out how many rubies we have collected
+collected       :: CollectableKind -> Point 2 R ->  [Collectable] -> Count
+collected k pos = genericLength . filter p
+  where
+    p c = (c^.collectableKind) == k && pos `intersects` (boundingBox c)
+
+
+
+instance ApplyLogic Aladdin where
+  applyLogic gs a = a&apples +~ collected CollectableApple pos cs
+    where
+      cs  = gs^.world.activeLevel.collectables
+      pos = a^.position
 
 instance ApplyLogic ViewPort where
   applyLogic gs = tryCenterViewPort (gs^.player.aladdin.position)
@@ -187,8 +232,6 @@ tryCenterViewPort p lvl vp = vp&viewPortCenter .~ limitTo rect p
 
 
 
-instance ApplyLogic Player where
-  applyLogic gs p = p
 
 
 
