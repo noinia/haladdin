@@ -13,7 +13,7 @@ import           Data.List.NonEmpty (NonEmpty(..))
 --------------------------------------------------------------------------------
 -- * General Types
 
-
+type Time = Double
 
 type R = Double
 
@@ -231,6 +231,7 @@ type instance Dimension TargetArea = 2
 type instance NumType   TargetArea = R
 
 
+
 -- | The world consists of various levels. Levels consist of items,
 -- collectables, enemies and have a target s.t. if aladdin arrives at the
 -- target the level is complete.
@@ -276,7 +277,7 @@ data GameState = GameState { _world     :: !World
                            , _player    :: !Player
                            , _viewPort  :: !ViewPort
                            , _keysState :: !KeysState
-                           , _deltaTime :: !Double
+                           , _gameTime  :: !Time
                            } deriving (Show,Eq)
 makeLenses ''GameState
 
@@ -291,7 +292,6 @@ makePrisms ''GameMode
 
 
 type Model = GameMode
-
 
 --------------------------------------------------------------------------------
 -- * Initial Values

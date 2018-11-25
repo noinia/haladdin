@@ -16,7 +16,7 @@ mainJSM = do
     let myApp = App { model         = initialModel
                     , update        = Controller.update
                     , view          = View.view
-                    , subs          = [ keysStateSub $ PlayingAction . GetKeysState ]
+                    , subs          = [ keysStateSub $ GetKeysState ]
                     , events        = defaultEvents
                     , initialAction = StartGame
                     , mountPoint    = Nothing

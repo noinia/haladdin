@@ -1,62 +1,203 @@
 module Haladdin.Controller where
 
+import           Control.Concurrent
 import           Control.Lens hiding (element, Level)
+import           Control.Monad.IO.Class
 import           Data.Ext
 import qualified Data.Foldable as F
 import           Data.Geometry.Box
 import           Data.Geometry.Point
+import           Data.Geometry.Vector
+import           Data.Geometry.Properties
 import           Data.Geometry.Vector
 import           Data.Ord (comparing)
 import           Data.Range
 import           Data.UnBounded
 import           Haladdin.Action
 import           Haladdin.Model
-import           Miso
+import           Miso hiding (set)
+
+--------------------------------------------------------------------------------
 
 update     :: Action -> Model -> Effect Action Model
 update a m = case a of
-               StartGame        -> startGame
-               TogglePause      -> togglePause m
-               PlayingAction pa -> case m of
-                                     Playing gs -> bimap PlayingAction Playing $
-                                                     updatePlaying pa gs
-                                     _          -> noEff m
+               StartGame       -> startGame
+               TogglePause     -> togglePause m
+               GetKeysState ks -> noEff $ case m of
+                                    Playing gs -> Playing $ gs&keysState .~ ks
+                                    _          -> m
+               Step t          -> case m of
+                                    Playing gs -> step t gs
+                                    _          -> noEff m
+                                                  -- no longer playing, so stop stepping
+
+--------------------------------------------------------------------------------
 
 startGame :: Effect Action GameMode
-startGame = bimap PlayingAction Playing $ step initialGameState
+startGame = step 0 initialGameState
 
 togglePause :: GameMode -> Effect Action GameMode
 togglePause = \case
     Playing gs -> noEff $ Paused gs
-    Paused gs  -> bimap PlayingAction Playing $ step gs
+    Paused gs  -> step (gs^.gameTime) gs
     m          -> noEff m
 
--- type PlayingAction = Action
+-- | The main update function that does a playing action.
+step      :: Time -> GameState -> Effect Action Model
+step t gs = progressTime t gs <# do Step <$> now
+  -- when we get a step event with time t, we compute a new gamestate using
+  -- the 'step' function. Moreover, we generate a new step event at the current time.
 
-updatePlaying :: PlayingAction -> GameState -> Effect PlayingAction GameState
-updatePlaying a gs = case a of
-    NoOp            -> noEff gs
-    Time t          -> step $ gs&deltaTime .~ 1
-    GetKeysState ks -> noEff $ gs&keysState .~ ks
-
-
-step        :: GameState -> Effect PlayingAction GameState
-step origGS = k origGS <# do Time <$> now
+progressTime                   :: Time -> GameState -> Model
+progressTime t gs | hasWon     = Finished gameScore
+                  | hasDied    = GameOver gameScore
+                  | otherwise  = Playing gs'
   where
-    k = center . mv
+    -- we basically do two things: we move everything that can move, and then
+    -- apply all game rules/gamelogic
+    gs' = (\gs'' -> applyLogic gs'' gs'')
+        . progressTimeWith gs (t - gs^.gameTime)
+        $ gs
+    gameScore = gs'^.player.score
+    hasWon  = False -- todo
+    hasDied = gs^.player.aladdin.health == Health 0 && gs^.player.lives == 0
 
-    -- move our characters
-    mv gs = gs&player.aladdin %~ move (gs^.world.activeLevel) (gs^.keysState) (gs^.deltaTime)
+--------------------------------------------------------------------------------
 
-    -- try to center the viewport
-    center gs = gs&viewPort %~ tryCenterViewPort (gs^.player.aladdin.position)
-                                                 (gs^.world.activeLevel)
+class Progressable t where
+  -- | Given the gamestate and a dt value (i.e. how much time has passed since
+  -- gametime), update the t.
+  progressTimeWith :: GameState -> Time -> t -> t
 
+class ApplyLogic t where
+  -- | perform whatever update to this t
+  applyLogic :: GameState -> t -> t
+
+--------------------------------------------------------------------------------
+-- * Everything that moves/changes as a function of time.
+
+instance Progressable GameState where
+  progressTimeWith _ dt gs = gs&world    %~ progressTimeWith gs dt
+                               &player   %~ progressTimeWith gs dt
+                               &gameTime +~ dt
+
+instance Progressable World where
+  progressTimeWith gs dt w = w&activeLevel %~ progressTimeWith gs dt
+
+instance Progressable Level where
+  progressTimeWith gs dt l = l&enemies.traverse %~ progressTimeWith gs dt
+
+instance Progressable Enemy where
+  progressTimeWith gs dt e = e -- TODO
+
+instance Progressable Player where
+  progressTimeWith gs dt p = p&aladdin %~ progressTimeWith gs dt
+
+instance Progressable Aladdin where
+  progressTimeWith gs dt a = a&position      %~ move'          dt (a^.velocity) ground
+                              &velocity      %~ updateVelocity dt ks canJump'
+                              &movementState %~ movementState' ks
+    where
+      ks = gs^.keysState
+      ground = groundAt' (gs^.world.activeLevel)
+
+      canJump' = canJump (a^.movementState)
+
+-- | Compute a new movement state, for now just keep whatever it was
+movementState' ks ms = ms
+
+-- | Moves aladin
+move'               :: Time -> Vector 2 R -> (Point 2 R -> R) -> Point 2 R -> Point 2 R
+move' dt v ground p = p&xCoord .~ x
+                       &yCoord .~ gp `max` (p^.yCoord + dt*v^.yComponent)
+  where
+    x  = p^.xCoord + dt*v^.xComponent
+    gp = ground p
+
+maxVelocity :: Vector 2 R
+maxVelocity = Vector2 5 2
+
+-- | Computes the new velocity of aladdin
+updateVelocity                          :: Time -> KeysState
+                                        -> Bool -- ^ can we currently jump
+                                        -> Vector 2 R -> Vector 2 R
+updateVelocity dt ks cj (Vector2 vx vy) = Vector2 clamp' clamp' <*> speedInterval
+                                                                <*> Vector2 vx' vy'
+  where
+    vx' = degrade dt vx + (ifPressed (ks^.leftKey)  $ (-1)*xDelta)
+                        + (ifPressed (ks^.rightKey) $ xDelta)
+    vy' = degrade dt vy + (if cj then ifPressed (ks^.jumpKey) jumpVelocity else 0)
+
+
+    ifPressed Pressed  x = x
+    ifPressed Released _ = 0
+
+    speedInterval :: Vector 2 (Range R)
+    speedInterval = (\z -> ClosedRange ((-1)*z) z) <$> maxVelocity
+
+    clamp' i = trunc . clampTo i
+
+    -- for very small values just reset to zero
+    trunc x | abs x < 0.01 = 0
+            | otherwise    = x
+
+-- slows down some value depending on how much time has progressed
+degrade dt x = dt*0.005*x
+
+
+
+
+
+-- move           :: Level -> KeysState -> Time -> Aladdin -> Aladdin
+-- move lvl ks dt = aladdinPhysics  dt ground (lvl^.bBox)
+--                . applyKeysState  dt ks
+--                . aladdinGravity  dt ground
+--   where
+--     ground = groundAt' lvl
+
+
+--------------------------------------------------------------------------------
+-- * Applying Game Logic
+
+instance ApplyLogic GameState where
+  applyLogic _ gs = gs&world    %~ applyLogic gs
+                      &player   %~ applyLogic gs
+                      &viewPort %~ applyLogic gs
+
+instance ApplyLogic World where
+  applyLogic gs w | levelCompleted = w -- TODO; progress a level
+                  | otherwise      = w&activeLevel %~ applyLogic gs
+    where
+      levelCompleted = (gs^.player.aladdin.position)
+                       `intersects`
+                       (w^.activeLevel.target.to boundingBox)
+
+instance ApplyLogic Level where
+  applyLogic gs l = l
+
+instance ApplyLogic ViewPort where
+  applyLogic gs = tryCenterViewPort (gs^.player.aladdin.position)
+                                    (gs^.world.activeLevel)
 
 tryCenterViewPort          :: Point 2 R -> Level -> ViewPort -> ViewPort
 tryCenterViewPort p lvl vp = vp&viewPortCenter .~ limitTo rect p
   where
     rect = shrink ((/2) <$> vp^.viewPortDimensions) $ boundingBox lvl
+
+
+
+
+instance ApplyLogic Player where
+  applyLogic gs p = p
+
+
+
+
+
+
+
+
+
 
 shrink     :: Num r => Vector 2 r -> Rectangle p r -> Rectangle p r
 shrink v r = r&minP.core.cwMin %~ (.+^ v)
@@ -77,7 +218,7 @@ limitTo r = clip (extent r)
 --------------------------------------------------------------------------------
 -- * Dealing with input
 
-applyKeysState         :: Double -> KeysState -> Aladdin -> Aladdin
+applyKeysState         :: Time -> KeysState -> Aladdin -> Aladdin
 applyKeysState dt ks a = F.foldl' (\a' f -> f a') a  $ update' <*> ks
   where
     update' :: GKeysState (KeyState -> Aladdin -> Aladdin)
@@ -107,7 +248,7 @@ jump a' = if canJump (a'^.movementState) then j a' else a'
     j a = a&velocity.yComponent %~ (\vy -> if vy == 0 then jumpVelocity else vy)
            &movementState       .~ Jumping
 
-xDelta = 10
+xDelta = 1
 
 moveLeft  :: Aladdin -> Aladdin
 moveLeft a = a&velocity.xComponent .~ (-1)*xDelta
@@ -147,7 +288,7 @@ shieldSword a = a&sword .~ Shielded
 --------------------------------------------------------------------------------
 -- * Moving
 
-move           :: Level -> KeysState -> Double -> Aladdin -> Aladdin
+move           :: Level -> KeysState -> Time -> Aladdin -> Aladdin
 move lvl ks dt = aladdinPhysics  dt ground (lvl^.bBox)
                . applyKeysState  dt ks
                . aladdinGravity  dt ground

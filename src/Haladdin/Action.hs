@@ -9,10 +9,5 @@ import Miso
 data Action
   = StartGame
   | TogglePause
-  | PlayingAction !PlayingAction
--- type Action = PlayingAction
-
-data PlayingAction
-  = GetKeysState !KeysState
-  | Time !Double
-  | NoOp
+  | GetKeysState !KeysState  -- ^ Some keyboard input
+  | Step !Time               -- ^ The time at which step was called.
