@@ -45,6 +45,7 @@ library
   exposed-modules:
                   Haladdin
                 , Haladdin.Model
+                , Haladdin.Settings
                 , Haladdin.Controller
                 , Haladdin.View
                 , Haladdin.Action

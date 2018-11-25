@@ -16,6 +16,7 @@ import           Data.Range
 import           Data.UnBounded
 import           Haladdin.Action
 import           Haladdin.Model
+import           Haladdin.Settings
 import           Miso hiding (set)
 --------------------------------------------------------------------------------
 
@@ -117,9 +118,6 @@ move' dt v ground p = p&xCoord .~ x
   where
     x  = p^.xCoord + dt*v^.xComponent
     gp = ground p
-
-maxVelocity :: Vector 2 R
-maxVelocity = Vector2 5 2
 
 -- | Computes the new velocity of aladdin
 updateVelocity                          :: Time -> KeysState
@@ -250,9 +248,7 @@ shrink v r = r&minP.core.cwMin %~ (.+^ v)
 
 clip                              :: Ord r
                                   => Vector 2 (Range r) -> Point 2 r -> Point 2 r
-clip (Vector2 xr yr) (Point2 x y) = Point2 (clip' x xr) (clip' y yr)
-  where
-    clip' a (Range' l u) = (a `min` u) `max` l
+clip (Vector2 xr yr) (Point2 x y) = Point2 (clampTo xr x) (clampTo yr y)
 
 -- | Limit the point to stay inside the rectangle
 limitTo   :: (Ord r, Num r) => Rectangle p r -> Point 2 r -> Point 2 r
@@ -291,7 +287,6 @@ jump a' = if canJump (a'^.movementState) then j a' else a'
     j a = a&velocity.yComponent %~ (\vy -> if vy == 0 then jumpVelocity else vy)
            &movementState       .~ Jumping
 
-xDelta = 1
 
 moveLeft  :: Aladdin -> Aladdin
 moveLeft a = a&velocity.xComponent .~ (-1)*xDelta
@@ -320,8 +315,6 @@ canCrouch s = s `elem` [Standing]
 canJump   :: MovementState -> Bool
 canJump s = s `elem` [Standing, Crouching, Climbing]
 
-jumpVelocity :: R
-jumpVelocity = 6
 
 
 drawSword a = a&sword .~ Extended
@@ -381,9 +374,6 @@ applyGravity dt a = a&velocity.yComponent %~ f
       0  -> fallingSpeed
       vy -> vy
 
--- | Speed with which we start falling
-fallingSpeed :: R
-fallingSpeed = -6
 
 
 -- | version specfic to aladdin
